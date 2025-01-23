@@ -1,0 +1,52 @@
+import boto3
+import json
+import time
+
+# Configuración de AWS
+textract = boto3.client('textract')
+s3 = boto3.client('s3')
+
+def lambda_handler(event, context):
+    bucket_name = event['Records'][0]['s3']['bucket']['name']
+    object_key = event['Records'][0]['s3']['object']['key']
+
+    if not object_key.startswith("input/"):
+        print(f"Archivo {object_key} no está en la carpeta 'input/'. Ignorando.")
+        return
+
+    # Iniciar el análisis del documento
+    response = textract.start_document_analysis(
+        DocumentLocation={'S3Object': {'Bucket': bucket_name, 'Name': object_key}},
+        FeatureTypes=['TABLES', 'FORMS']
+    )
+    
+    job_id = response['JobId']
+    print(f"Job iniciado con ID: {job_id}")
+
+    # Esperar a que el análisis termine
+    status = "IN_PROGRESS"
+    while status == "IN_PROGRESS":
+        time.sleep(5)  # Esperar 5 segundos antes de volver a consultar
+        response = textract.get_document_analysis(JobId=job_id)
+        status = response['JobStatus']
+        print(f"Estado del análisis: {status}")
+
+    if status == "SUCCEEDED":
+        # Guardar el resultado en S3
+        output_key = f"output/{object_key.split('/')[-1].replace('.pdf', '.json')}"
+        s3.put_object(
+            Bucket=bucket_name,
+            Key=output_key,
+            Body=json.dumps(response)
+        )
+        print(f"Archivo procesado y guardado en: s3://{bucket_name}/{output_key}")
+        return {
+            'statusCode': 200,
+            'body': f"Archivo procesado y guardado en: s3://{bucket_name}/{output_key}"
+        }
+    else:
+        print(f"El análisis falló con estado: {status}")
+        return {
+            'statusCode': 500,
+            'body': f"Error al procesar el archivo con estado: {status}"
+        }

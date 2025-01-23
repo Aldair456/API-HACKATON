@@ -1,0 +1,58 @@
+import boto3
+import json
+
+# Configuración de clientes de AWS
+textract = boto3.client('textract')
+s3 = boto3.client('s3')
+
+# Función para extraer texto de cualquier documento
+def extraer_texto_puro(json_textract):
+    texto_extraido = []
+    for bloque in json_textract["Blocks"]:
+        if bloque["BlockType"] == "LINE":  # Solo bloques de texto
+            texto_extraido.append(bloque["Text"])
+    return "\n".join(texto_extraido)  # Concatenar las líneas con saltos de línea
+
+# Función Lambda
+def lambda_handler(event, context):
+    # Obtener información del archivo que activó el evento
+    bucket_name = event['Records'][0]['s3']['bucket']['name']
+    object_key = event['Records'][0]['s3']['object']['key']
+
+    # Verificar que el archivo esté en la carpeta "input/"
+    if not object_key.startswith("input/"):
+        print(f"Archivo {object_key} no está en la carpeta 'input/'. Ignorando.")
+        return
+
+    try:
+        # Ejecutar Textract para procesar el documento
+        response = textract.analyze_document(
+            Document={'S3Object': {'Bucket': bucket_name, 'Name': object_key}},
+            FeatureTypes=['TABLES', 'FORMS']  # Soporte para tablas y formularios
+        )
+
+        # Extraer el texto puro del JSON de salida
+        texto_puro = extraer_texto_puro(response)
+
+        # Generar el archivo de salida (mismo nombre, extensión .txt)
+        output_key = f"output/{object_key.split('/')[-1].replace('.pdf', '.txt').replace('.jpg', '.txt')}"
+
+        # Guardar el texto extraído en S3
+        s3.put_object(
+            Bucket=bucket_name,
+            Key=output_key,
+            Body=texto_puro
+        )
+
+        print(f"Texto extraído y guardado en: s3://{bucket_name}/{output_key}")
+        return {
+            'statusCode': 200,
+            'body': f"Texto extraído y guardado en: s3://{bucket_name}/{output_key}"
+        }
+
+    except Exception as e:
+        print(f"Error al procesar el archivo: {e}")
+        return {
+            'statusCode': 500,
+            'body': f"Error al procesar el archivo: {e}"
+        }

@@ -1,0 +1,33 @@
+service: extraer-texto-pdf
+
+provider:
+  name: aws
+  runtime: python3.9
+  region: us-east-1
+  memorySize: 512
+  timeout: 30
+  iamRoleStatements:
+    - Effect: "Allow"
+      Action:
+        - "s3:GetObject"
+      Resource: "arn:aws:s3:::mi-bucket-financiero/*"
+    - Effect: "Allow"
+      Action:
+        - "bedrock:InvokeModel"
+      Resource: "*"
+
+functions:
+  extraerTextoPDF:
+    handler: funcion.lambda_handler
+    events:
+      - http:
+          path: extraer-texto
+          method: post
+          cors: true
+
+plugins:
+  - serverless-python-requirements
+
+custom:
+  pythonRequirements:
+    dockerizePip: true
